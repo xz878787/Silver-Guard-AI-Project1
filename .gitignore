@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Next.js output
+.next/
+out/
+
+# Environment
+.env*
+
+# Logs
+npm-debug.log*
+
+# System files
+.DS_Store

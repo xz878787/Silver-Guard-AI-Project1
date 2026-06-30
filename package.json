@@ -1,0 +1,23 @@
+{
+  "name": "silver-guard-ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "银发守护 AI — 面向老年人的防诈、办事、健康陪伴一体化助手",
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "15.2.3",
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.13.0",
+    "@types/react": "19.0.0",
+    "@types/react-dom": "19.0.0",
+    "typescript": "5.7.3"
+  }
+}
