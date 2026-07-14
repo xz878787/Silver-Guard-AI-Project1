@@ -45,7 +45,7 @@ export default function HomePage() {
   const [serviceResult, setServiceResult] = useState<ServiceGuideResult | null>(null);
   const [reminderResult, setReminderResult] = useState<CareReminderResult | null>(null);
   const [historyKey, setHistoryKey] = useState(0);
-  const [aiMode, setAiMode] = useState<"real" | "mock">("mock");
+  const [aiMode, setAiMode] = useState<"real" | "mock">("real");
   const [analysisMode, setAnalysisMode] = useState<"real" | "mock" | "fallback">("mock");
   const [analysisError, setAnalysisError] = useState("");
 
@@ -56,7 +56,6 @@ export default function HomePage() {
 
   const changeAiMode = (mode: "real" | "mock") => {
     setAiMode(mode);
-    localStorage.setItem("silver-guard-ai-mode", mode);
     setAnalysisError("");
   };
 
