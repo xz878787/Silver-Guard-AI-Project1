@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   AppTab,
   FraudDetectionResult,
@@ -45,6 +45,20 @@ export default function HomePage() {
   const [serviceResult, setServiceResult] = useState<ServiceGuideResult | null>(null);
   const [reminderResult, setReminderResult] = useState<CareReminderResult | null>(null);
   const [historyKey, setHistoryKey] = useState(0);
+  const [aiMode, setAiMode] = useState<"real" | "mock">("mock");
+  const [analysisMode, setAnalysisMode] = useState<"real" | "mock" | "fallback">("mock");
+  const [analysisError, setAnalysisError] = useState("");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("silver-guard-ai-mode");
+    if (saved === "real" || saved === "mock") setAiMode(saved);
+  }, []);
+
+  const changeAiMode = (mode: "real" | "mock") => {
+    setAiMode(mode);
+    localStorage.setItem("silver-guard-ai-mode", mode);
+    setAnalysisError("");
+  };
 
   const summary = useMemo(() => {
     return [
@@ -60,19 +74,38 @@ export default function HomePage() {
     setFraudResult(null);
     setServiceResult(null);
     setReminderResult(null);
-
-    await new Promise((resolve) => setTimeout(resolve, 900));
+    setAnalysisError("");
 
     const { detectFraud } = await import("@/lib/ai-service");
     try {
-      const result = await detectFraud(text, { provider: "mock" });
+      let result: FraudDetectionResult;
+      if (aiMode === "real") {
+        if (!process.env.NEXT_PUBLIC_DEEPSEEK_API_KEY) throw new Error("未配置真实 AI 密钥");
+        result = await Promise.race([
+          detectFraud(text, { provider: "deepseek" }),
+          new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error("AI 分析超时")), 12000)),
+        ]);
+        setAnalysisMode("real");
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 1300));
+        result = await detectFraud(text, { provider: "mock" });
+        setAnalysisMode("mock");
+      }
       setFraudResult(result);
       addRecord("fraud", text, result);
+      setHistoryKey((k) => k + 1);
+    } catch (error) {
+      console.error("Real AI unavailable, using safe fallback", error);
+      const fallback = await detectFraud(text, { provider: "mock" });
+      setFraudResult(fallback);
+      setAnalysisMode("fallback");
+      setAnalysisError("真实 AI 暂时无法连接，已自动切换安全分析，结果仍可正常使用。");
+      addRecord("fraud", text, fallback);
       setHistoryKey((k) => k + 1);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [aiMode]);
 
   const handleScenarioSelect = useCallback(async (scenario: DemoScenario) => {
     setInput(scenario.input);
@@ -172,22 +205,19 @@ export default function HomePage() {
               ))}
             </section>
 
-            <MessageInput
-              onSubmit={handleFraudSubmit}
-              onScenarioSelect={handleScenarioSelect}
-              isLoading={isLoading}
-              defaultValue={input}
-            />
-
-            {isLoading && (
-              <div className="loading-dots" aria-label="loading">
-                <div className="loading-dot" />
-                <div className="loading-dot" />
-                <div className="loading-dot" />
+            <section className="ai-mode-panel" aria-label="AI 分析模式">
+              <div><span className="mode-title">分析引擎</span><small>{aiMode === "real" ? "联网调用 DeepSeek，失败自动降级" : "离线稳定运行，适合现场演示"}</small></div>
+              <div className="mode-switch" role="group" aria-label="选择分析引擎">
+                <button className={aiMode === "mock" ? "active" : ""} onClick={() => changeAiMode("mock")}><span className="mode-dot offline" />稳定演示</button>
+                <button className={aiMode === "real" ? "active" : ""} onClick={() => changeAiMode("real")}><span className="mode-dot online" />真实 AI</button>
               </div>
-            )}
+            </section>
 
-            {fraudResult && !isLoading && <FraudResult result={fraudResult} />}
+            <MessageInput onSubmit={handleFraudSubmit} onScenarioSelect={handleScenarioSelect} isLoading={isLoading} defaultValue={input} />
+
+            {isLoading && <AnalysisLoading mode={aiMode} />}
+            {analysisError && !isLoading && <div className="fallback-notice" role="status">🛟 {analysisError}</div>}
+            {fraudResult && !isLoading && <FraudResult result={fraudResult} analysisMode={analysisMode} />}
 
             {!fraudResult && !isLoading && (
               <section className="empty-state card">
@@ -232,6 +262,22 @@ export default function HomePage() {
       </main>
 
       <TabBar currentTab={currentTab} onTabChange={setCurrentTab} />
+    </div>
+  );
+}
+
+function AnalysisLoading({ mode }: { mode: "real" | "mock" }) {
+  const [step, setStep] = useState(0);
+  const messages = ["正在读懂消息内容…", "正在查找转账、链接和冒充话术…", "正在生成最安全的下一步…"];
+  useEffect(() => {
+    const timer = window.setInterval(() => setStep((value) => Math.min(value + 1, messages.length - 1)), 700);
+    return () => window.clearInterval(timer);
+  }, [messages.length]);
+  return (
+    <div className="analysis-loading" role="status" aria-live="polite">
+      <div className="thinking-core"><span /><span /><span /></div>
+      <div><strong>{mode === "real" ? "真实 AI 正在分析" : "守护引擎正在分析"}</strong><p key={step} className="typing-line">{messages[step]}</p></div>
+      <span className="loading-shield">🛡️</span>
     </div>
   );
 }

@@ -1,192 +1,148 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FraudDetectionResult } from "@/lib/types";
 
 interface FraudResultProps {
   result: FraudDetectionResult;
+  analysisMode?: "real" | "mock" | "fallback";
 }
 
-const riskMeta: Record<string, { cls: string; icon: string; label: string }> = {
-  high:    { cls: "risk-high",   icon: "⚠️", label: "高危" },
-  medium:  { cls: "risk-medium", icon: "⚡", label: "可疑" },
-  low:     { cls: "risk-low",    icon: "👀", label: "低风险" },
-  safe:    { cls: "risk-safe",   icon: "✅", label: "安全" },
-  unknown: { cls: "risk-medium", icon: "❓", label: "不好判断" },
-};
+const riskMeta = {
+  high: { cls: "risk-high", icon: "!", label: "高危骗局", headline: "立即停止，不要转账", reassurance: "先别怕，现在停下来还来得及" },
+  medium: { cls: "risk-medium", icon: "?", label: "高度可疑", headline: "先不要操作，找家人核实", reassurance: "多确认一次，就少一分风险" },
+  low: { cls: "risk-low", icon: "i", label: "低风险", headline: "暂未发现明显骗局", reassurance: "仍不要随意透露验证码和密码" },
+  safe: { cls: "risk-safe", icon: "✓", label: "基本安全", headline: "可以放心，但仍需保护隐私", reassurance: "这条消息没有明显诈骗特征" },
+  unknown: { cls: "risk-medium", icon: "?", label: "信息不足", headline: "暂时不要操作", reassurance: "请让家人或官方客服再确认" },
+} as const;
 
-const confCls = (v: number) =>
-  v >= 85 ? "confidence-high" : v >= 60 ? "confidence-medium" : "confidence-low";
-
-export default function FraudResult({ result }: FraudResultProps) {
+export default function FraudResult({ result, analysisMode = "mock" }: FraudResultProps) {
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const m = riskMeta[result.risk_level] ?? riskMeta.unknown;
-  const cardTone =
-    result.risk_level === "high" ? "card-danger"
-    : result.risk_level === "medium" ? "card-warning"
-    : "card-safe";
+  const speechText = useMemo(() => {
+    const stops = result.next_actions.dont.slice(0, 2).join("。不要");
+    const actions = result.next_actions.do.slice(0, 2).join("。然后");
+    return `${m.label}。${m.headline}。${result.plain_explain.title}。${result.plain_explain.what_happened}。${stops ? `不要${stops}。` : ""}${actions ? `建议${actions}。` : ""}`;
+  }, [m, result]);
+
+  useEffect(() => () => window.speechSynthesis?.cancel(), []);
+
+  const toggleSpeak = () => {
+    if (!("speechSynthesis" in window)) return;
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(speechText);
+    utterance.lang = "zh-CN";
+    utterance.rate = 0.88;
+    utterance.pitch = 1;
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    setIsSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
 
   return (
-    <div className="stack">
-      {/* ── Risk Banner ── */}
-      <div className="card" style={{ textAlign: "center", padding: "24px 20px" }}>
-        <span className={`risk-badge ${m.cls}`}>
-          <span style={{ fontSize: 22 }}>{m.icon}</span>
-          <span style={{ fontSize: 22 }}>{m.label}</span>
-        </span>
-
-        {result.scene_type !== "其他" && (
-          <p className="mt-12 mb-0" style={{ fontSize: 15, color: "var(--muted)" }}>
-            这很像：<strong style={{ color: "var(--text)" }}>{result.scene_type}</strong>
-          </p>
-        )}
-
-        <div className="confidence-bar" style={{ marginTop: 14 }}>
-          <div
-            className={`confidence-fill ${confCls(result.confidence)}`}
-            style={{ width: `${result.confidence}%` }}
-          />
+    <section className={`result-experience result-${result.risk_level}`} aria-live="polite">
+      <div className="result-hero">
+        <div className={`risk-orb ${m.cls}`} aria-hidden="true">{m.icon}</div>
+        <span className="result-step">第 2 步 · AI 判断完成</span>
+        <h2>{m.headline}</h2>
+        <p className="risk-reassurance">{m.reassurance}</p>
+        <div className="result-meta-row">
+          <span className={`risk-pill ${m.cls}`}>{m.label}</span>
+          {result.scene_type !== "其他" && <span className="scene-pill">像是：{result.scene_type}</span>}
+          <span className="confidence-pill">可信度 {result.confidence}%</span>
         </div>
-        <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
-          AI 置信度 {result.confidence}%
-        </p>
+        <button className={`speak-button ${isSpeaking ? "is-speaking" : ""}`} type="button" onClick={toggleSpeak}>
+          <span>{isSpeaking ? "◼" : "🔊"}</span>{isSpeaking ? "停止朗读" : "大声读给我听"}
+        </button>
       </div>
 
-      {/* ── Plain Explain ── */}
-      <div className={`card ${cardTone}`}>
-        <h3 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-          大白话解释
-        </h3>
-        <p style={{ fontSize: 20, fontWeight: 800, margin: "0 0 14px", lineHeight: 1.3 }}>
-          {result.plain_explain.title}
-        </p>
-        <div style={{
-          padding: "14px 16px",
-          borderRadius: 12,
-          background: "rgba(255,255,255,0.03)",
-          lineHeight: 1.8,
-          fontSize: 16,
-        }}>
-          <p style={{ margin: "0 0 8px" }}>{result.plain_explain.what_happened}</p>
-          {result.risk_level !== "safe" && (
-            <p className="text-danger fw-700" style={{ margin: 0 }}>
-              {result.plain_explain.why_dangerous}
-            </p>
+      <div className="analysis-source">
+        <span className={`source-dot source-${analysisMode}`} />
+        {analysisMode === "real" ? "真实 AI 已完成在线分析" : analysisMode === "fallback" ? "网络不稳，已自动切换安全分析" : "离线演示引擎已完成分析"}
+      </div>
+
+      <div className="result-grid">
+        <article className="result-card explain-card">
+          <span className="card-label">一句话说明</span>
+          <h3>{result.plain_explain.title}</h3>
+          <p>{result.plain_explain.what_happened}</p>
+          {result.risk_level !== "safe" && <p className="danger-reason">{result.plain_explain.why_dangerous}</p>}
+        </article>
+
+        {result.red_flags.length > 0 && (
+          <article className="result-card flag-card">
+            <span className="card-label">发现 {result.red_flags.length} 个危险信号</span>
+            <div className="flag-list">
+              {result.red_flags.map((flag, i) => <div key={flag}><span>{i + 1}</span><p>{flag}</p></div>)}
+            </div>
+          </article>
+        )}
+      </div>
+
+      <article className="action-command-card">
+        <div className="action-command-heading">
+          <span className="step-kicker">第 3 步</span>
+          <h3>现在照着做</h3>
+        </div>
+        <div className="action-columns">
+          {result.next_actions.dont.length > 0 && (
+            <div className="action-column stop-column"><h4>马上停止</h4>{result.next_actions.dont.map((item) => <div className="command-item" key={item}><span>×</span>{item}</div>)}</div>
+          )}
+          {result.next_actions.do.length > 0 && (
+            <div className="action-column go-column"><h4>安全做法</h4>{result.next_actions.do.map((item) => <div className="command-item" key={item}><span>✓</span>{item}</div>)}</div>
           )}
         </div>
-      </div>
+      </article>
 
-      {/* ── Red Flags ── */}
-      {result.red_flags.length > 0 && (
-        <div className="card">
-          <h3 className="section-title">可疑信号</h3>
-          {result.red_flags.map((flag, i) => (
-            <div key={i} className="red-flag-item">
-              <span style={{ color: "var(--danger)", fontWeight: 700, flexShrink: 0 }}>
-                {i + 1}.
-              </span>
-              <span>{flag}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── Next Actions ── */}
-      <div className="card">
-        <h3 className="section-title">接下来怎么做</h3>
-
-        {result.next_actions.dont.length > 0 && (
-          <div className="mb-12">
-            <p className="text-danger fw-700 mb-12" style={{ fontSize: 14 }}>
-              千万不要：
-            </p>
-            {result.next_actions.dont.map((item, i) => (
-              <div key={i} className="action-card action-dont">
-                ❌ {item}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {result.next_actions.do.length > 0 && (
-          <div>
-            <p className="text-safe fw-700 mb-12" style={{ fontSize: 14 }}>
-              应该这样做：
-            </p>
-            {result.next_actions.do.map((item, i) => (
-              <div key={i} className="action-card action-do">
-                ✅ {item}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ── Family Card ── */}
-      {result.family_message && <FamilyShareCard message={result.family_message} />}
-    </div>
+      {result.family_message && <FamilyShareCard message={result.family_message} riskLabel={m.label} />}
+    </section>
   );
 }
 
-function FamilyShareCard({ message }: { message: string }) {
+function FamilyShareCard({ message, riskLabel }: { message: string; riskLabel: string }) {
   const [copied, setCopied] = useState(false);
+  const completeMessage = `【银发守护求助】风险判断：${riskLabel}\n${message}\n\n我还没有转账或点击链接，请帮我核实一下。`;
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(message);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(completeMessage);
     } catch {
-      // fallback
-      const ta = document.createElement("textarea");
-      ta.value = message;
-      document.body.appendChild(ta);
-      ta.select();
+      const textArea = document.createElement("textarea");
+      textArea.value = completeMessage;
+      document.body.appendChild(textArea);
+      textArea.select();
       document.execCommand("copy");
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      document.body.removeChild(textArea);
     }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2400);
   };
 
   const handleShare = async () => {
     if (navigator.share) {
-      try {
-        await navigator.share({ title: "银发守护 — 帮我看一条消息", text: message });
-      } catch { /* cancelled */ }
+      try { await navigator.share({ title: "银发守护求助卡", text: completeMessage }); } catch { /* user cancelled */ }
     } else {
-      handleCopy();
+      await handleCopy();
     }
   };
 
-  const handleSms = () => {
-    const body = encodeURIComponent(message);
-    const mobileLink = `sms:?&body=${body}`;
-    window.location.href = mobileLink;
-  };
-
   return (
-    <div className="family-card">
-      <h3 style={{ margin: "0 0 6px", fontSize: 16, fontWeight: 700 }}>
-        发给子女确认
-      </h3>
-      <p style={{ margin: "0 0 12px", fontSize: 14, color: "var(--muted)" }}>
-        一键转发，让家人帮你一起判断
-      </p>
-      <div className="family-card-message">{message}</div>
-      <div className="family-actions">
-        <button className="btn btn-primary btn-large" onClick={handleShare}>
-          📤 转发给子女
-        </button>
-        <button
-          className="btn btn-outline"
-          onClick={handleCopy}
-        >
-          {copied ? "✅ 已复制" : "📋 复制"}
-        </button>
-        <button className="btn btn-outline" onClick={handleSms}>
-          短信发送
-        </button>
+    <article className="family-help-card">
+      <div className="family-help-heading">
+        <div className="family-avatar-group"><span>👵</span><span>👨‍👩‍👧</span></div>
+        <div><span className="step-kicker light">第 4 步 · 请家人把关</span><h3>一键发给家人求助</h3></div>
       </div>
-    </div>
+      <div className="help-message"><span>已帮你写好：</span><p>{completeMessage}</p></div>
+      <div className="family-help-actions">
+        <button className="btn help-primary" onClick={handleCopy}>{copied ? "✓ 已复制，可去微信粘贴" : "📋 一键复制家属文案"}</button>
+        <button className="btn help-secondary" onClick={handleShare}>📤 直接转发</button>
+      </div>
+      <p className="copy-hint">复制后打开微信，粘贴给子女或可信任的人</p>
+    </article>
   );
 }
