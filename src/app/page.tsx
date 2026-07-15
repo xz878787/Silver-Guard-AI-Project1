@@ -79,10 +79,9 @@ export default function HomePage() {
     try {
       let result: FraudDetectionResult;
       if (aiMode === "real") {
-        if (!process.env.NEXT_PUBLIC_DEEPSEEK_API_KEY) throw new Error("未配置真实 AI 密钥");
         result = await Promise.race([
           detectFraud(text, { provider: "deepseek" }),
-          new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error("AI 分析超时")), 12000)),
+          new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error("AI 分析超时")), 15000)),
         ]);
         setAnalysisMode("real");
       } else {
@@ -98,7 +97,8 @@ export default function HomePage() {
       const fallback = await detectFraud(text, { provider: "mock" });
       setFraudResult(fallback);
       setAnalysisMode("fallback");
-      setAnalysisError("真实 AI 暂时无法连接，已自动切换安全分析，结果仍可正常使用。");
+      const reason = error instanceof Error ? error.message : "连接失败";
+      setAnalysisError(`真实 AI 未连接：${reason}。已改用本地核验规则，结果会明确标注来源。`);
       addRecord("fraud", text, fallback);
       setHistoryKey((k) => k + 1);
     } finally {

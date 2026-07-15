@@ -63,7 +63,7 @@ export default function FraudResult({ result, analysisMode = "mock" }: FraudResu
 
       <div className="analysis-source">
         <span className={`source-dot source-${analysisMode}`} />
-        {analysisMode === "real" ? "真实 AI 已完成在线分析" : analysisMode === "fallback" ? "网络不稳，已自动切换安全分析" : "离线演示引擎已完成分析"}
+        {analysisMode === "real" ? "真实 AI 已完成在线分析，并经过本地安全规则复核" : analysisMode === "fallback" ? "真实 AI 未连接，本结果来自本地核验规则" : "离线演示引擎已完成分析"}
       </div>
 
       <div className="result-grid">
@@ -71,7 +71,10 @@ export default function FraudResult({ result, analysisMode = "mock" }: FraudResu
           <span className="card-label">一句话说明</span>
           <h3>{result.plain_explain.title}</h3>
           <p>{result.plain_explain.what_happened}</p>
-          {result.risk_level !== "safe" && <p className="danger-reason">{result.plain_explain.why_dangerous}</p>}
+          {["high", "medium", "unknown"].includes(result.risk_level) && (
+            <p className="danger-reason">{result.plain_explain.why_dangerous}</p>
+          )}
+          {result.risk_level === "low" && <p className="low-risk-note">{result.plain_explain.why_dangerous}</p>}
         </article>
 
         {result.red_flags.length > 0 && (

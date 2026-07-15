@@ -23,6 +23,7 @@ import {
   FAMILY_BRIDGE_PROMPT,
 } from "./prompts";
 import { MOCK_FRAUD_RESULTS } from "./mock-data";
+import { classifyFraudOffline, reconcileFraudResult } from "./risk-classifier";
 
 // ═══════════════════════════════════════
 // 配置
@@ -30,10 +31,11 @@ import { MOCK_FRAUD_RESULTS } from "./mock-data";
 
 const DEFAULT_CONFIG: AIConfig = {
   provider: "deepseek",
-  apiKey: process.env.NEXT_PUBLIC_DEEPSEEK_API_KEY || "",
+  // 密钥仅供服务端调用，绝不能通过 NEXT_PUBLIC 打进浏览器代码。
+  apiKey: process.env.DEEPSEEK_API_KEY || "",
   baseUrl:
-    process.env.NEXT_PUBLIC_DEEPSEEK_BASE_URL || "https://api.deepseek.com",
-  model: process.env.NEXT_PUBLIC_DEEPSEEK_MODEL || "deepseek-chat",
+    process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com",
+  model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
   maxTokens: 1024,
   temperature: 0.1, // 低温度保证输出稳定
 };
@@ -49,11 +51,12 @@ async function callAI(
 ): Promise<string> {
   const cfg = { ...DEFAULT_CONFIG, ...config };
 
-  // Mock 模式 — 用于 Demo 或没有 API Key 时
-  if (cfg.provider === "mock" || !cfg.apiKey) {
+  // Mock 模式只在用户明确选择时使用，不能把真实 AI 失败伪装成真实调用。
+  if (cfg.provider === "mock") {
     console.log("[银发守护] 使用 Mock 模式");
     return mockResponse(userPrompt);
   }
+  if (!cfg.apiKey) throw new Error("未配置 AI API Key");
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -120,12 +123,36 @@ export async function detectFraud(
   input: string,
   config?: Partial<AIConfig>
 ): Promise<FraudDetectionResult> {
+  const cfg = { ...DEFAULT_CONFIG, ...config };
+  if (cfg.provider === "mock") return classifyFraudOffline(input);
+
+  if (typeof window !== "undefined" && cfg.provider === "deepseek") {
+    const result = await callFraudProxy(input);
+    return reconcileFraudResult(input, result);
+  }
+
   const response = await callAI(
     MASTER_SYSTEM_PROMPT,
     FRAUD_DETECTION_USER_PROMPT(input),
-    config
+    cfg
   );
-  return parseJSON<FraudDetectionResult>(response);
+  return reconcileFraudResult(input, parseJSON<FraudDetectionResult>(response));
+}
+
+async function callFraudProxy(input: string): Promise<FraudDetectionResult> {
+  const response = await fetch("/api/detect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: input }),
+  });
+  const payload = await response.json().catch(() => null) as
+    | FraudDetectionResult
+    | { error?: string }
+    | null;
+  if (!response.ok || !payload || "error" in payload) {
+    throw new Error(payload?.error || `AI 服务连接失败（${response.status}）`);
+  }
+  return payload;
 }
 
 /**
